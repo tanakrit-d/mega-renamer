@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "remove": [
+    "WEB-DL", "WEBRip", "BDRip", "HDRip", "DVDRip",
+    "WEB.x264", "WEB.h264", "HDTV.x264", "HDTV.XviD", "BluRay.x264"
+  ],
+  "afterResolution": ["BluRay.DTS", "BluRay.DTS-HD"]
+}
