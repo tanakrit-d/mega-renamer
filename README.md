@@ -40,7 +40,7 @@ exit --only-shell
 
 Open [http://localhost:8080](http://localhost:8080), enter your API token, and paste a MEGA link to start. MEGA credentials are entered inside the container; they never pass through the web interface.
 
-Compose stores the MEGA session and job data in separate persistent volumes, so they survive container restarts and replacements. Avoid `docker compose down -v` unless you intend to delete those volumes. The image targets `linux/amd64`; ARM hosts need emulation.
+Compose stores the MEGA session and job data in separate persistent volumes, so they survive container restarts and replacements. Avoid `docker compose down -v` unless you intend to delete those volumes. The image targets `linux/amd64`.
 
 The default port is accessible only from the Docker host. For remote access, use an HTTPS reverse proxy that sets `X-Forwarded-Proto: https` and keep API-token authentication enabled.
 
