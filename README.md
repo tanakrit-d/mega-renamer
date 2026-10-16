@@ -2,6 +2,8 @@
 
 A self-hosted web app that cleans up MEGA filenames for use with debrid services. Release tags such as `WEB-DL` and `BluRay.DTS-HD` can interfere with filename matching; MEGA Renamer removes configured tags while preserving the title, resolution, and file extension. Adjust the rules to suit your debrid service's naming requirements.
 
+![](./assets/screenshot.png)
+
 ## How it works
 
 Paste a public MEGA file or folder link, including its decryption key. The app imports it into `/Imports/<job-id>` in your signed-in MEGA account, cleans the filenames, and generates public links you can copy into your debrid service. File contents stay in MEGA and are imported server-side, without downloading them to your host.
