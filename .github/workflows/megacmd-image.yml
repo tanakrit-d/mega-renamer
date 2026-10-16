@@ -32,16 +32,19 @@ jobs:
           set -euo pipefail
           curl --fail --silent --show-error --location --retry 3 \
             --max-time 120 \
-            https://mega.nz/linux/repo/Debian_12/amd64/Packages \
-            -o "$RUNNER_TEMP/megacmd-packages"
+            https://mega.nz/linux/repo/Debian_12/Packages.gz \
+            -o "$RUNNER_TEMP/megacmd-packages.gz"
           python3 - <<'PY'
+          import gzip
           import os
           import re
           import subprocess
           from pathlib import Path
 
           latest = None
-          for stanza in Path(os.environ['RUNNER_TEMP'], 'megacmd-packages').read_text().split('\n\n'):
+          index = gzip.decompress(Path(os.environ['RUNNER_TEMP'], 'megacmd-packages.gz').read_bytes()).decode('utf-8')
+          # MEGA's index can omit blank lines between architecture entries.
+          for stanza in re.split(r'(?=^Package: )', index, flags=re.MULTILINE):
               fields = dict(line.split(': ', 1) for line in stanza.splitlines()
                             if ': ' in line and not line.startswith((' ', '\t')))
               if fields.get('Package') != 'megacmd' or fields.get('Architecture') != 'amd64':
