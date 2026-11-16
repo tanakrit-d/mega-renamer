@@ -1,4 +1,5 @@
 import hashlib
+from email.message import Message
 import sys
 import tempfile
 import time
@@ -21,7 +22,9 @@ class SessionTests(unittest.TestCase):
 
     def handler(self, cookie=None, method='GET', **headers):
         handler = object.__new__(server.Handler)
-        handler.headers = {'Host': 'localhost:8080', **headers}
+        handler.headers = Message()
+        for name, value in {'Host': 'localhost:8080', **headers}.items():
+            handler.headers[name] = value
         if cookie:
             handler.headers['Cookie'] = cookie
         handler.command = method

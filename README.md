@@ -1,59 +1,60 @@
 # MEGA Renamer
 
-A self-hosted web app that cleans up MEGA filenames for use with debrid services. Release tags such as `WEB-DL` and `BluRay.DTS-HD` can interfere with filename matching; MEGA Renamer removes configured tags while preserving the title, resolution, and file extension. Adjust the rules to suit your debrid service's naming requirements.
+A self-hosted app that cleans MEGA filenames for debrid services. It removes configured release tags while preserving titles, resolutions, and file extensions. File contents stay in MEGA.
 
-![](./assets/screenshot.png)
+![MEGA Renamer interface](./assets/screenshot.png)
 
-## How it works
+## Setup
 
-Paste a public MEGA file or folder link, including its decryption key. The app imports it into `/Imports/<job-id>` in your signed-in MEGA account, cleans the filenames, and generates public links you can copy into your debrid service. File contents stay in MEGA and are imported server-side, without downloading them to your host.
-
-Each import includes an `original-filenames.txt` report recording the original names, planned names, and removed tags. The web interface shows progress, activity logs, and links to the files, folder, and report. Imports run one at a time. Failed imports keep any files already imported for inspection; retrying creates a separate import.
-
-## Setup with Docker Compose
-
-Install Docker with Compose, then clone this repository and create your configuration:
+Install Docker with Compose, then copy the example configuration:
 
 ```sh
 git clone https://github.com/tanakrit-d/mega-renamer.git
 cd mega-renamer
+cp compose.example.yaml compose.yaml
 cp .env.example .env
 openssl rand -hex 32
 ```
 
-Set `API_TOKEN` in `.env` to the generated token, then build and start the app:
+Set `API_TOKEN` in `.env` to the generated token, then pull and start the published image:
 
 ```sh
-docker compose up --build -d
+docker compose pull
+docker compose up -d
 docker compose exec renamer mega-cmd
 ```
 
-In the MEGAcmd shell, enter:
+In the MEGAcmd shell, enter `login your-email@example.com` and follow the password and MFA prompts. Leave the shell with `exit --only-shell` to keep the MEGA session active.
 
-```text
-login your-email@example.com
-```
+Open [http://localhost:8080](http://localhost:8080) and enter your API token. MEGA credentials are entered inside the container, never through the web interface.
 
-Follow the password and MFA prompts, then leave the shell with:
+The example uses `ghcr.io/tanakrit-d/mega-renamer:latest` for `linux/amd64`. The MEGA session and app data use separate persistent volumes. Avoid `docker compose down -v` unless you intend to delete them. Your local `compose.yaml` and `.env` are ignored by Git.
 
-```text
-exit --only-shell
-```
+The port is bound to localhost. For remote access, use an HTTPS reverse proxy that preserves the request Host header and sets `X-Forwarded-Proto: https`.
 
-Open [http://localhost:8080](http://localhost:8080), enter your API token, and paste a MEGA link to start. MEGA credentials are entered inside the container; they never pass through the web interface.
+## Importing files
 
-Compose stores the MEGA session and job data in separate persistent volumes, so they survive container restarts and replacements. Avoid `docker compose down -v` unless you intend to delete those volumes. The image targets `linux/amd64`.
+Paste a public MEGA file or folder link with its decryption key, then choose a destination layout:
 
-The default port is accessible only from the Docker host. For remote access, use an HTTPS reverse proxy that sets `X-Forwarded-Proto: https` and keep API-token authentication enabled.
+- **Separate folder per import** keeps the source folder structure in `/Imports/<job-id>`.
+- **All files in one shared directory** flattens files into `/Imports/Shared`. Name collisions get numbered suffixes, and the layout choice is remembered in your browser.
+
+Each import saves an original-name report before renaming: `original-filenames.txt` for separate imports, or `original-filenames-<job-id>.txt` for shared imports. The report records original names, planned names, and removed tags.
+
+The UI shows progress, activity logs, and public file/report links. Separate imports also get a folder link. Shared imports retain a staging folder for recovery and per-import trash operations.
+
+Imports run one at a time and check available storage before importing. **Check size** lets you check a link beforehand. Failed imports retain files for inspection; retrying creates a new import.
+
+Password-protected links and links to selected subnodes are unsupported. Generated links, including reports, are public.
 
 ## Naming rules
 
-Edit **Naming rules** in the web interface, with one literal string per line:
+Edit **Naming rules** with one literal string per line:
 
-- **Always remove** removes matching whole tags wherever they occur. Defaults include `WEB-DL`, `WEBRip`, `BDRip`, `HDRip`, `DVDRip`, `WEB.x264`, `WEB.h264`, `HDTV.x264`, `HDTV.XviD`, and `BluRay.x264`.
-- **Remove only after a resolution** removes tags immediately after a dotted resolution such as `1080p.` or `2160p.`. Defaults are `BluRay.DTS` and `BluRay.DTS-HD`.
+- **Always remove** removes whole tags such as `WEB-DL` and `WEBRip` wherever they occur.
+- **Remove only after a resolution** removes tags such as `BluRay.DTS` and `BluRay.DTS-HD` immediately after a dotted resolution.
 
-Matching ignores case and treats punctuation literally. The app preserves folder names and file extensions, tidies separators left by removed tags, and adds `(2)`, `(3)`, etc. when cleaned names collide.
+Matching ignores case, preserves file extensions, and tidies leftover separators. Folder names stay unchanged in separate-folder mode.
 
 | Original | Cleaned name |
 | --- | --- |
@@ -61,42 +62,35 @@ Matching ignores case and treats punctuation literally. The app preserves folder
 | `Film.2160p.BluRay.DTS-HD.mkv` | `Film.2160p.mkv` |
 | `Film.2002.BluRay.DTS-HD.MA.5.1.mkv` | Unchanged: no resolution immediately before the tag |
 
-Click **Save rules** to apply changes to newly submitted imports. Saved rules persist across restarts and upgrades; existing jobs retain the rules they started with. Empty either list to disable that filter.
+**Save rules** applies changes to new imports. Queued and existing imports retain their rules. Empty a list to disable that filter. Rules persist across restarts.
 
-## Storage and trash
+## Storage and cleanup
 
-Imports use storage in your MEGA account. The **Cloud storage** card shows used, available, and rubbish-bin storage. **Check size** compares a link's size, plus space for the filename report, against your available quota. Capacity is checked again before importing; imports are blocked if size or quota cannot be determined.
+The **Cloud storage** card shows available, used, and rubbish-bin storage.
 
-- **Trash import** moves the selected import's entire folder to your MEGA rubbish bin. This does **not** free storage yet.
-- **Empty trash** permanently deletes **everything in your account's rubbish bin**, including unrelated files.
-- **Trash & empty trash** moves the selected import to the bin, then permanently empties the entire bin.
+- **Trash import** moves the import to MEGA's rubbish bin. For shared imports, it collects only that import's recorded files and report.
+- **Empty trash** permanently deletes **everything in the account's rubbish bin**, including unrelated files.
+- **Trash & empty trash** performs both operations.
 
-Permanent deletion requires confirmation. Storage totals may take time to update. Trashed imports keep their local logs and filename records, but their saved public links are cleared.
+Moving files to trash does not free storage; emptying it does. Permanent deletion requires confirmation, and storage totals may take time to update.
 
-**Remove from history** and **Clear history** delete local job records only; they leave files in MEGA. Use the trash controls to remove cloud files.
+**Remove from history** and **Clear history** remove local records only. Cloud files remain in MEGA; use the trash controls first if you also want to remove them.
 
 ## Updates and troubleshooting
 
-To update a local build after pulling changes:
-
-```sh
-git pull
-docker compose up --build -d
-```
-
-The [GitHub workflow](.github/workflows/megacmd-image.yml) checks daily for new MEGAcmd packages and publishes images to `ghcr.io/<owner>/<repo>` with `latest` and `megacmd-<version>` tags. To use a published image, replace `build: .` in `compose.yaml` with `image: ghcr.io/<owner>/<repo>:latest`, using the publishing repository's owner and name. Then update with:
+Pull the latest published image and recreate the container:
 
 ```sh
 docker compose pull
 docker compose up -d
 ```
 
-New images do not automatically replace running containers. Your session, rules, and history remain in the persistent volumes.
+Session, rules, and history remain in the persistent volumes. The [publishing workflow](.github/workflows/megacmd-image.yml) checks daily for new MEGAcmd packages. Maintainers can force a rebuild to publish app changes without a new MEGAcmd version.
 
-For failures, open the import's activity log or inspect the container logs:
+For failures, check the import's activity log or container logs:
 
 ```sh
 docker compose logs --tail=200 renamer
 ```
 
-Use full public file or folder links; password-protected links and links to selected subnodes are unsupported. Generated links, including the filename report, are public, so share them carefully.
+To build from source instead, replace the `image:` line in your local `compose.yaml` with `build: .`, then run `docker compose up --build -d`.

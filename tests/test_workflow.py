@@ -2,10 +2,24 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import TypedDict
 from unittest.mock import patch
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 import server
+from rules import NamingRules
+
+
+class WorkflowJob(TypedDict, total=False):
+    id: str
+    source: str
+    rules: NamingRules
+    files: list[dict[str, object]]
+    logs: list[dict[str, str]]
+    status: str
+    directoryMode: str
+    destination: str
+
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
@@ -36,7 +50,7 @@ class WorkflowTests(unittest.TestCase):
             if name == 'export':
                 return 'Exported: https://mega.nz/file/abc#key\n'
             return ''
-        job = {'id': 'abc', 'source': 'https://mega.nz/folder/abc#key', 'files': [],
+        job: WorkflowJob = {'id': 'abc', 'source': 'https://mega.nz/folder/abc#key', 'files': [],
                'rules': {'version': 1, 'remove': ['WEB-DL'], 'afterResolution': []}}
         with patch.object(server, 'command', side_effect=mega), patch.object(server, 'save'), patch.object(server, 'read_rules', side_effect=AssertionError('Queued job must use its saved rules')):
             server.process(job)
@@ -47,6 +61,39 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(next(c[1] for c in calls if c[0] == 'mv'), ('H:file0001', dest + '/Film.mkv'))
         self.assertTrue(all(c[1][-1].startswith('H:') for c in calls if c[0] == 'export'))
         self.assertIn('Import complete.', job['logs'][-1]['message'])
+
+    def test_shared_import_flattens_and_preserves_existing_files(self):
+        dest, shared = '/Imports/abc', '/Imports/Shared'
+        calls = []
+        def mega(name, *args, **kwargs):
+            calls.append((name, args))
+            if name == 'find':
+                if args[0] == shared:
+                    return shared + ' <H:shared01>\n' + shared + '/Film.mkv <H:existing>\n'
+                if '--type=d' in args:
+                    return dest + ' <H:folder01>\n' + dest + '/nested <H:nested01>\n'
+                listing = dest + '/nested/Film.WEB-DL.mkv <H:file0001>\n'
+                if any(c[0] == 'put' for c in calls):
+                    listing += dest + '/original-filenames-abc.txt <H:report01>\n'
+                return listing
+            if name == 'put':
+                report = Path(args[0]).read_text()
+                self.assertIn(shared + '/Film (2).mkv', report)
+            if name == 'export':
+                return 'https://mega.nz/file/abc#key'
+            return ''
+        job: WorkflowJob = {'id': 'abc', 'source': 'https://mega.nz/file/abc#key',
+               'directoryMode': 'shared'}
+        with patch.object(server, 'command', side_effect=mega), patch.object(server, 'save'):
+            server.process(job)
+        self.assertEqual(job['status'], 'complete')
+        self.assertEqual(job['destination'], shared)
+        self.assertEqual(job['files'][0]['renamed'], shared + '/Film (2).mkv')
+        self.assertIn(('mv', ('H:file0001', shared + '/Film (2).mkv')), calls)
+        self.assertIn(('mv', ('H:report01', shared + '/original-filenames-abc.txt')), calls)
+        self.assertFalse(any(c[0] in ('mv', 'export') and 'H:existing' in c[1] for c in calls))
+        self.assertNotIn('folderUrl', job)
+        self.assertLess([c[0] for c in calls].index('put'), [c[0] for c in calls].index('mv'))
 
     def test_failure_retains_import(self):
         with patch.object(server, 'command', side_effect=RuntimeError('Import failed')), patch.object(server, 'save'):

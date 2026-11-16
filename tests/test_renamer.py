@@ -30,5 +30,13 @@ class NamingTests(unittest.TestCase):
         result = plan_names(['/a/Film.WEB-DL.mkv'], reserved=['/a/Film.mkv'])
         self.assertEqual(result[0]['renamed'], '/a/Film (2).mkv')
 
+class SharedPlanTests(unittest.TestCase):
+    def test_nested_names_collide_in_shared_directory(self):
+        entries = plan_names(['/stage/a/Film.mkv', '/stage/b/Film.WEB-DL.mkv'],
+                             reserved=['/shared/Film.mkv', '/shared/Film (2).mkv'],
+                             destination='/shared')
+        self.assertEqual([e['renamed'] for e in entries],
+                         ['/shared/Film (3).mkv', '/shared/Film (4).mkv'])
+
 if __name__ == '__main__':
     unittest.main()

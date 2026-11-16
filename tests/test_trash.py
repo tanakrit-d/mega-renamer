@@ -2,7 +2,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 import server
 
@@ -17,6 +17,26 @@ class TrashTests(unittest.TestCase):
         self.assertNotIn('folderUrl', job)
         self.assertNotIn('url', job['files'][0])
         self.assertFalse(any(c.args[0] == 'rm' for c in command.call_args_list))
+
+    def test_shared_trash_only_collects_owned_handles(self):
+        job = {'id': 'abc', 'status': 'complete', 'directoryMode': 'shared',
+               'files': [{'handle': 'H:file0001'}], 'manifestHandle': 'H:report01'}
+        def mega(name, *args, **kwargs):
+            if name == 'find' and args[0] == '/Imports/abc':
+                return '/Imports/abc <H:folder01>\n'
+            if name == 'find':
+                return ('/Imports/Shared <H:shared01>\n'
+                        '/Imports/Shared/mine.mkv <H:file0001>\n'
+                        '/Imports/Shared/report.txt <H:report01>\n'
+                        '/Imports/Shared/other.mkv <H:other001>\n')
+            return ''
+        with patch.object(server, 'command', side_effect=mega) as command, patch.object(server, 'save'):
+            server.trash_import(job)
+        moves = [c.args for c in command.call_args_list if c.args[0] == 'mv']
+        self.assertEqual(moves, [('mv', 'H:file0001', '/Imports/abc/mine.mkv'),
+                                 ('mv', 'H:report01', '/Imports/abc/report.txt'),
+                                 ('mv', 'H:folder01', '//bin')])
+        self.assertEqual(job['status'], 'trashed')
 
     def test_active_import_cannot_be_trashed(self):
         with patch.object(server, 'command') as command:
@@ -48,7 +68,7 @@ class TrashTests(unittest.TestCase):
 
     def test_empty_requires_confirmation(self):
         handler = object.__new__(server.Handler)
-        handler.reply = unittest.mock.Mock()
+        handler.reply = Mock()
         with patch.object(server, 'empty_trash') as empty:
             handler.manage_import(None, {})
         self.assertEqual(handler.reply.call_args.args[0], 400)
@@ -56,7 +76,7 @@ class TrashTests(unittest.TestCase):
 
     def test_management_rejected_while_import_running(self):
         handler = object.__new__(server.Handler)
-        handler.reply = unittest.mock.Mock()
+        handler.reply = Mock()
         with server.ACCOUNT_LOCK, patch.object(server, 'empty_trash') as empty:
             handler.manage_import(None, {'confirm': 'EMPTY_ACCOUNT_TRASH'})
         self.assertEqual(handler.reply.call_args.args[0], 409)
@@ -64,7 +84,7 @@ class TrashTests(unittest.TestCase):
 
     def test_combined_action_trashes_before_emptying(self):
         handler = object.__new__(server.Handler)
-        handler.reply = unittest.mock.Mock()
+        handler.reply = Mock()
         match = server.re.fullmatch(r'/api/jobs/([a-f0-9]{32})/(trash|trash-empty)', '/api/jobs/' + 'a' * 32 + '/trash-empty')
         calls = []
         job = {'id': 'a' * 32, 'status': 'complete'}
@@ -82,7 +102,7 @@ class TrashTests(unittest.TestCase):
 
     def test_combined_action_does_not_empty_if_trash_fails(self):
         handler = object.__new__(server.Handler)
-        handler.reply = unittest.mock.Mock()
+        handler.reply = Mock()
         match = server.re.fullmatch(r'/api/jobs/([a-f0-9]{32})/(trash|trash-empty)', '/api/jobs/' + 'a' * 32 + '/trash-empty')
         with patch.object(server, 'load_job', return_value={'id': 'a' * 32, 'status': 'failed'}), patch.object(server, 'trash_import', side_effect=RuntimeError('Folder missing')), patch.object(server, 'empty_trash') as empty, patch.object(server, 'save'):
             handler.manage_import(match, {'confirm': 'EMPTY_ACCOUNT_TRASH'})
